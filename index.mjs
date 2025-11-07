@@ -6,8 +6,7 @@ const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN);
 const paidUsers = new Map();
 
 /*
-  Handles the /start command.
-  Sends a welcome message to the user and explains the available commands for interacting with the bot.
+  /start — Welcome message
 */
 bot.command("start", (ctx) =>
   ctx.reply(
@@ -15,29 +14,26 @@ bot.command("start", (ctx) =>
 
 /pay - to pay
 /status - to check payment status
-/refund - to refund payment`,
+/refund - to refund payment
+/withdraw - to withdraw all available Stars`,
   ),
 );
 
 /*
-  Handles the /pay command.
-  Generates an invoice that users can click to make a payment. The invoice includes the product name, description, and payment options.
-  Note: Replace "Test Product", "Test description", and other placeholders with actual values in production.
+  /pay — Creates invoice for test payment
 */
 bot.command("pay", (ctx) => {
   return ctx.replyWithInvoice(
-    "Test Product", // Product name
-    "Test description", // Product description
-    "{}", // Payload (replace with meaningful data)
-    "XTR", // Currency
-    [{ amount: 1, label: "Test Product" }], // Price breakdown
+    "Test Product",
+    "Test description",
+    "{}",
+    "XTR",
+    [{ amount: 1, label: "Test Product" }],
   );
 });
 
 /*
-  Handles the pre_checkout_query event.
-  Telegram sends this event to the bot when a user clicks the payment button.
-  The bot must respond with answerPreCheckoutQuery within 10 seconds to confirm or cancel the transaction.
+  pre_checkout_query — Must confirm pre-checkout
 */
 bot.on("pre_checkout_query", (ctx) => {
   return ctx.answerPreCheckoutQuery(true).catch(() => {
@@ -46,9 +42,7 @@ bot.on("pre_checkout_query", (ctx) => {
 });
 
 /*
-  Handles the message:successful_payment event.
-  This event is triggered when a payment is successfully processed.
-  Updates the paidUsers map to record the payment details and logs the successful payment.
+  successful_payment — Record the user's payment
 */
 bot.on("message:successful_payment", (ctx) => {
   if (!ctx.message || !ctx.message.successful_payment || !ctx.from) {
@@ -56,27 +50,25 @@ bot.on("message:successful_payment", (ctx) => {
   }
 
   paidUsers.set(
-    ctx.from.id, // User ID
-    ctx.message.successful_payment.telegram_payment_charge_id, // Payment ID
+    ctx.from.id,
+    ctx.message.successful_payment.telegram_payment_charge_id,
   );
 
   console.log(ctx.message.successful_payment);
 });
 
 /*
-  Handles the /status command.
-  Checks if the user has made a payment and responds with their payment status.
+  /status — Check if user has paid
 */
 bot.command("status", (ctx) => {
   const message = paidUsers.has(ctx.from.id)
-    ? "You have paid"
-    : "You have not paid yet";
+    ? "✅ You have paid"
+    : "❌ You have not paid yet";
   return ctx.reply(message);
 });
 
 /*
-  Handles the /refund command.
-  Refunds the payment made by the user if applicable. If the user hasn't paid, informs them that no refund is possible.
+  /refund — Refund a user if they have paid
 */
 bot.command("refund", (ctx) => {
   const userId = ctx.from.id;
@@ -88,10 +80,39 @@ bot.command("refund", (ctx) => {
     .refundStarPayment(userId, paidUsers.get(userId))
     .then(() => {
       paidUsers.delete(userId);
-      return ctx.reply("Refund successful");
+      return ctx.reply("💸 Refund successful");
     })
     .catch(() => ctx.reply("Refund failed"));
 });
 
-// Starts the bot and makes it ready to receive updates and process commands.
+/*
+  /withdraw — Send all available Stars to the user
+  This uses the Telegram Bot API method: transferStarPayment
+  (Available in latest bot API versions)
+*/
+bot.command("withdraw", async (ctx) => {
+  try {
+    // First check bot balance (optional)
+    const balance = await ctx.api.getStarTransactions();
+    const available = balance.my_balance || 0;
+
+    if (available <= 0) {
+      return ctx.reply("😔 No Stars available to withdraw right now.");
+    }
+
+    // Send all available Stars to the user
+    await ctx.api.transferStarPayment({
+      user_id: ctx.from.id,
+      amount: available,
+      purpose: "Withdraw all available Stars",
+    });
+
+    return ctx.reply(`🌟 Successfully sent you ${available} Stars!`);
+  } catch (err) {
+    console.error("Withdraw error:", err);
+    return ctx.reply("❌ Withdrawal failed. Try again later.");
+  }
+});
+
+// Start bot
 bot.start();
